@@ -32,6 +32,10 @@ template: coder
 # to identify and potentially reuse an existing workspace within Coder.
 name: {{repo}}-{{ref}}
 
+parameters:
+  - name: Region
+    value: sp
+
 # Uncomment and use 'parameters' to override template defaults
 # parameters:
 #   - name: "Git URL"
