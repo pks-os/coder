@@ -25,18 +25,9 @@
 host: https://dev.coder.com
 
 # Specify the Coder template for this repository
-template: coder
+template: kira-docker
 
 # Define a name for the new workspace using variables such as {{org}}, {{repo}}, 
 # and {{ref}} to dynamically generate values. This name is crucial as it is used 
 # to identify and potentially reuse an existing workspace within Coder.
 name: {{repo}}-{{ref}}
-
-parameters:
-  - name: Region
-    value: sp
-
-# Uncomment and use 'parameters' to override template defaults
-# parameters:
-#   - name: "Git URL"
-#     value: "https://github.com/{{org}}/{{repo}}/tree/{{ref}}"
