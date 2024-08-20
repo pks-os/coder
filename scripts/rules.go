@@ -7,10 +7,9 @@
 // - https://go-ruleguard.github.io/by-example/
 // - https://pkg.go.dev/github.com/quasilyte/go-ruleguard/dsl
 //
-// You run one of the following commands to execute your go rules only:
+// You can run the following command to execute your go rules only:
 //
-//	golangci-lint run
-//	golangci-lint run --disable-all --enable=gocritic
+//	golangci-lint run --enable-only=gocritic
 //
 // Note: don't forget to run `golangci-lint cache clean`!
 package gorules
@@ -362,6 +361,34 @@ func slogFieldNameSnakeCase(m dsl.Matcher) {
 	).
 		Where(m["name"].Const && !m["name"].Text.Matches(`^"[a-z]+(_[a-z]+)*"$`)).
 		Report("Field name $name must be snake_case.")
+}
+
+// slogFieldValueOnlyPrimitiveTypes is a lint rule that ensures we only log primitive types.
+//
+//nolint:unused,deadcode,varnamelen
+func slogFieldValueOnlyPrimitiveTypes(m dsl.Matcher) {
+	m.Import("fmt")
+	m.Import("time")
+	m.Import("cdr.dev/slog")
+	m.Import("github.com/google/uuid")
+	m.Match(
+		`slog.F($name, $value)`,
+	).
+		Where(
+			!m.File().Name.Matches(`_test\.go$`) &&
+				m["name"].Const && (!m["value"].Type.Underlying().Is("string") &&
+				!m["value"].Type.Underlying().Is("[]byte") &&
+				!m["value"].Type.Underlying().Is("int") &&
+				!m["value"].Type.Underlying().Is("int32") &&
+				!m["value"].Type.Underlying().Is("uint32") &&
+				!m["value"].Type.Underlying().Is("int64") &&
+				!m["value"].Type.Underlying().Is("bool") &&
+				!m["value"].Type.Underlying().Is("time.Time") &&
+				!m["value"].Type.Underlying().Is("time.Duration") &&
+				!m["value"].Type.Is("uuid.UUID") &&
+				m["value"].Type.Implements("fmt.Stringer"))).
+		At(m["value"]).
+		Report("Field value must be a primitive type.").Suggest("slog.F($name, $value.String())")
 }
 
 // slogUUIDFieldNameHasIDSuffix ensures that "uuid.UUID" field has ID prefix
