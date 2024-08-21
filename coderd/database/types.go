@@ -33,6 +33,7 @@ type HealthSettings struct {
 type NotificationsSettings struct {
 	ID             uuid.UUID `db:"id" json:"id"`
 	NotifierPaused bool      `db:"notifier_paused" json:"notifier_paused"`
+	EnqueuerPaused bool      `db:"enqueuer_paused" json:"enqueuer_paused"`
 }
 
 type Actions []policy.Action

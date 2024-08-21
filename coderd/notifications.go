@@ -102,6 +102,7 @@ func (api *API) putNotificationsSettings(rw http.ResponseWriter, r *http.Request
 	aReq.New = database.NotificationsSettings{
 		ID:             uuid.New(),
 		NotifierPaused: settings.NotifierPaused,
+		EnqueuerPaused: settings.EnqueuerPaused,
 	}
 
 	err = api.Database.UpsertNotificationsSettings(ctx, string(settingsJSON))

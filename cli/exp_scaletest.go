@@ -392,6 +392,40 @@ func (r *userCleanupRunner) Run(ctx context.Context, _ string, _ io.Writer) erro
 	return nil
 }
 
+// suspendNotifications attempts to temporarily suspend notifications when performing a scaletest.
+func (r *RootCmd) suspendNotifications(inv *serpent.Invocation, client *codersdk.Client) func() error {
+	originalSettings, err := client.GetNotificationsSettings(inv.Context())
+	if err != nil {
+		cliui.Warnf(inv.Stdout, "Failed to fetch notification settings: %v\n", err)
+		cliui.Prompt(inv, cliui.PromptOptions{
+			Text: "Please ensure notification enqueuing is paused and press enter to continue...",
+		})
+		return func() error { return nil } // cannot restore original state.
+	}
+
+	if originalSettings.EnqueuerPaused {
+		return func() error { return nil } // already paused, nothing to do!
+	}
+
+	restore := func() error {
+		err := client.PutNotificationsSettings(inv.Context(), originalSettings)
+		if err != nil {
+			return xerrors.Errorf("Failed to resume notifications: %w", err)
+		}
+		return nil
+	}
+
+	cliui.Warnf(inv.Stdout, "Pausing notifications during scaletest. We will attempt to resume them after the scaletest is complete.")
+	updated := originalSettings
+	updated.EnqueuerPaused = true
+	if err := client.PutNotificationsSettings(inv.Context(), updated); err != nil {
+		cliui.Errorf(inv.Stdout, "Failed to pause notifications. Please manually pause notifications and re-run. The error was: %v\n", err)
+		os.Exit(1)
+	}
+
+	return restore
+}
+
 func (r *RootCmd) scaletestCleanup() *serpent.Command {
 	var template string
 

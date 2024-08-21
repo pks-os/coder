@@ -13,7 +13,12 @@ import (
 )
 
 type NotificationsSettings struct {
+	// NotifierPaused indicates whether the notifier is paused from sending notifications.
+	// In this state, notifications will be enqueued but not dispatched.
 	NotifierPaused bool `json:"notifier_paused"`
+	// EnqueuerPaused indicates whether the enqueuer is paused from enqueuing notifications.
+	// In this state, notifications will not be enqueued.
+	EnqueuerPaused bool `json:"enqueuer_paused"`
 }
 
 type NotificationTemplate struct {

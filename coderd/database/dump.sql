@@ -268,6 +268,14 @@ BEGIN
 		RAISE EXCEPTION 'cannot enqueue message: user has disabled this notification';
 	END IF;
 
+    -- Fail the insertion if the administrator has disabled enqueuing.
+    IF EXISTS (SELECT 1
+               FROM site_configs
+               WHERE key = 'enqueuer_paused'
+                 AND value = 'true') THEN
+        RAISE EXCEPTION 'cannot enqueue message: enqueuing is disabled';
+    END IF;
+
 	RETURN NEW;
 END;
 $$;
