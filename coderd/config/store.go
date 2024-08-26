@@ -8,22 +8,23 @@ import (
 )
 
 type Store interface {
-	PutOrgSetting(orgID uuid.UUID, name string, value string) error
 	GetOrgSetting(orgID uuid.UUID, name string) (string, error)
+	PutOrgSetting(orgID uuid.UUID, name string, value string) error
+	DeleteOrgSetting(orgID uuid.UUID, name string) error
 }
 
 var EntryNotFound = xerrors.New("entry not found")
 
-type fakeStore struct {
+type FakeStore struct {
 	mu    sync.Mutex
 	store map[uuid.UUID]map[string]string
 }
 
-func newFakeStore() *fakeStore {
-	return &fakeStore{store: make(map[uuid.UUID]map[string]string)}
+func NewFakeStore() *FakeStore {
+	return &FakeStore{store: make(map[uuid.UUID]map[string]string)}
 }
 
-func (f *fakeStore) PutOrgSetting(orgID uuid.UUID, name string, value string) error {
+func (f *FakeStore) PutOrgSetting(orgID uuid.UUID, name string, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -32,7 +33,7 @@ func (f *fakeStore) PutOrgSetting(orgID uuid.UUID, name string, value string) er
 	return nil
 }
 
-func (f *fakeStore) GetOrgSetting(orgID uuid.UUID, name string) (string, error) {
+func (f *FakeStore) GetOrgSetting(orgID uuid.UUID, name string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -46,8 +47,17 @@ func (f *fakeStore) GetOrgSetting(orgID uuid.UUID, name string) (string, error) 
 	return out, nil
 }
 
+func (f *FakeStore) DeleteOrgSetting(orgID uuid.UUID, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	st := f.orgStore(orgID)
+	delete(st, name)
+	return nil
+}
+
 // orgStore MUST be called with a lock held.
-func (f *fakeStore) orgStore(orgID uuid.UUID) map[string]string {
+func (f *FakeStore) orgStore(orgID uuid.UUID) map[string]string {
 	m, ok := f.store[orgID]
 	if !ok {
 		f.store[orgID] = map[string]string{}

@@ -2,10 +2,8 @@ package config_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/coder/serpent"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/coderd/coderdtest"
@@ -15,8 +13,8 @@ import (
 	"github.com/coder/coder/v2/enterprise/coderd/license"
 )
 
-// TestResolveByField demonstrates creating org-level overrides for deployment-level settings.
-func TestResolveByField(t *testing.T) {
+// TestConfig demonstrates creating org-level overrides for deployment-level settings.
+func TestConfig(t *testing.T) {
 	t.Parallel()
 
 	vals := coderdtest.DeploymentValues(t)
@@ -25,191 +23,73 @@ func TestResolveByField(t *testing.T) {
 		Options: &coderdtest.Options{DeploymentValues: vals},
 		LicenseOptions: &coderdenttest.LicenseOptions{
 			Features: license.Features{
-				codersdk.FeatureExternalProvisionerDaemons: 1,
-				codersdk.FeatureMultipleOrganizations:      1,
+				codersdk.FeatureMultipleOrganizations: 1,
 			},
 		},
 	})
-	altOrg := coderdenttest.CreateOrganization(t, adminClient, coderdenttest.CreateOrganizationOptions{
-		IncludeProvisionerDaemon: true,
+	altOrg := coderdenttest.CreateOrganization(t, adminClient, coderdenttest.CreateOrganizationOptions{})
+
+	t.Run("string", func(t *testing.T) {
+		t.Parallel()
+
+		store := config.NewFakeStore()
+
+		var (
+			base     = serpent.String("system@dev.coder.com")
+			override = serpent.String("dogfood@dev.coder.com")
+		)
+
+		field := &vals.Notifications.SMTP.From
+		// Check that no default has been set.
+		require.Empty(t, field.GlobalValue().String())
+		// Initialize the value, it has no default.
+		require.NoError(t, field.Set(base.String()))
+		// Validate that it returns that value.
+		require.Equal(t, base.String(), field.String())
+		// Validate that there is no org-level override right now.
+		_, err := field.OrgValue(store, altOrg.ID)
+		require.ErrorIs(t, err, config.EntryNotFound)
+		// Coalesce returns the deployment-wide value.
+		val, err := field.Coalesce(store, altOrg.ID)
+		require.NoError(t, err)
+		require.Equal(t, base.String(), val.String())
+		// Set an org-level override.
+		require.NoError(t, field.Override(store, altOrg.ID, &override))
+		// Coalesce now returns the org-level value.
+		val, err = field.Coalesce(store, altOrg.ID)
+		require.NoError(t, err)
+		require.Equal(t, override.String(), val.String())
 	})
 
-	tests := []struct {
-		name          string
-		field         config.Option
-		initialValue  string
-		overrideValue string
-		expectedValue any
-		equalityFn    func(t testing.TB, expected any, actual config.Option) bool
-	}{
-		// The following test-cases are not meant to exhaustively check all types which satisfy
-		// the config.Option interface, but rather to just be demonstrative.
-		{
-			name:          "default value (string)",
-			field:         &vals.Notifications.SMTP.From,
-			initialValue:  "system@dev.coder.com",
-			expectedValue: "system@dev.coder.com",
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.String).Value())
-			},
-		},
-		{
-			name:          "overridden value (string)",
-			field:         &vals.Notifications.SMTP.From,
-			initialValue:  "system@dev.coder.com",
-			overrideValue: "dogfood@dev.coder.com",
-			expectedValue: "dogfood@dev.coder.com",
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.String).Value())
-			},
-		},
-		{
-			name:          "default value (hostport)",
-			field:         &vals.Notifications.SMTP.Smarthost,
-			initialValue:  "localhost:587",
-			expectedValue: "localhost:587",
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.HostPort).String())
-			},
-		},
-		{
-			name:          "overridden value (hostport)",
-			field:         &vals.Notifications.SMTP.Smarthost,
-			initialValue:  "localhost:587",
-			overrideValue: "localhost:25",
-			expectedValue: "localhost:25",
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.HostPort).String())
-			},
-		},
-		{
-			name:          "default value (int64)",
-			field:         &vals.Provisioner.Daemons,
-			initialValue:  "3",
-			expectedValue: int64(3),
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.Int64).Value())
-			},
-		},
-		{
-			name:          "overridden value (int64)",
-			field:         &vals.Provisioner.Daemons,
-			initialValue:  "3",
-			overrideValue: "0",
-			expectedValue: int64(0),
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.Int64).Value())
-			},
-		},
-		{
-			name:          "default value (string array)",
-			field:         &vals.ProxyTrustedHeaders,
-			initialValue: "Origin",
-			expectedValue: []string{"Origin"},
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.StringArray).Value())
-			},
-		},
-		{
-			name:          "overridden value (string array)",
-			field:         &vals.ProxyTrustedHeaders,
-			initialValue: "Origin",
-			overrideValue: "Origin,Content-Type",
-			expectedValue: []string{"Origin", "Content-Type"},
-			equalityFn: func(t testing.TB, expected any, actual config.Option) bool {
-				return assert.Equal(t, expected, actual.(*serpent.StringArray).Value())
-			},
-		},
-	}
+	t.Run("struct", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tc := range tests {
-		// Tests are _not_ run in parallel because some refer to the same field.
-		t.Run(tc.name, func(t *testing.T) {
-			mgr := config.NewManager(vals.Options())
+		store := config.NewFakeStore()
 
-			// Set the initial value in the field.
-			require.NoError(t, tc.field.Set(tc.initialValue))
-
-			if tc.overrideValue != "" {
-				// Set an overridden value in the store.
-				require.NoError(t, mgr.AddOrgSettingOverride(altOrg.ID, tc.field, tc.overrideValue))
+		field := &vals.OIDC.AuthURLParams
+		var (
+			base     = map[string]string{"access_type": "offline"}
+			override = serpent.Struct[map[string]string]{
+				Value: map[string]string{
+					"a": "b",
+					"c": "d",
+				},
 			}
-
-			out, err := config.ResolveForOrgByOption(mgr, altOrg.ID, tc.field)
-			require.NoError(t, err)
-			// assert.True(t,
-			tc.equalityFn(t, tc.expectedValue, out)
-			// )
-		})
-	}
-}
-
-// TestResolveByName demonstrates create an org-level setting with any key.
-func TestResolveByName(t *testing.T) {
-	t.Parallel()
-
-	vals := coderdtest.DeploymentValues(t)
-	vals.Experiments = []string{string(codersdk.ExperimentMultiOrganization)}
-	adminClient, _, _, _ := coderdenttest.NewWithAPI(t, &coderdenttest.Options{
-		Options: &coderdtest.Options{DeploymentValues: vals},
-		LicenseOptions: &coderdenttest.LicenseOptions{
-			Features: license.Features{
-				codersdk.FeatureExternalProvisionerDaemons: 1,
-				codersdk.FeatureMultipleOrganizations:      1,
-			},
-		},
+		)
+		// Validate that the default value was set (see codersdk/deployment.go).
+		require.Equal(t, base, field.GlobalValue().Value)
+		// Validate that there is no org-level override right now.
+		_, err := field.OrgValue(store, altOrg.ID)
+		require.ErrorIs(t, err, config.EntryNotFound)
+		// Coalesce returns the deployment-wide value.
+		val, err := field.Coalesce(store, altOrg.ID)
+		require.NoError(t, err)
+		require.Equal(t, base, val.Value)
+		// Set an org-level override.
+		require.NoError(t, field.Override(store, altOrg.ID, &override))
+		// Coalesce now returns the org-level value.
+		structVal, err := field.OrgValue(store, altOrg.ID)
+		require.NoError(t, err)
+		require.Equal(t, override.Value, structVal.Value)
 	})
-	altOrg := coderdenttest.CreateOrganization(t, adminClient, coderdenttest.CreateOrganizationOptions{
-		IncludeProvisionerDaemon: true,
-	})
-
-	mgr := config.NewManager(vals.Options())
-	const (
-		key   = "my-custom-setting"
-		value = "my-custom-value"
-	)
-	require.NoError(t, mgr.AddOrgSettingByName(altOrg.ID, key, value))
-	setting, err := config.ResolveForOrgByName(mgr, altOrg.ID, key)
-	require.NoError(t, err)
-	require.Equal(t, value, setting)
-}
-
-// TestResolveByNameUnsafe demonstrates that you _can_ retrieve a setting by a well-known name, but this should be avoided
-// because it lacks any type-safety.
-func TestResolveByNameUnsafe(t *testing.T) {
-	t.Parallel()
-
-	vals := coderdtest.DeploymentValues(t)
-	vals.Experiments = []string{string(codersdk.ExperimentMultiOrganization)}
-	adminClient, _, _, _ := coderdenttest.NewWithAPI(t, &coderdenttest.Options{
-		Options: &coderdtest.Options{DeploymentValues: vals},
-		LicenseOptions: &coderdenttest.LicenseOptions{
-			Features: license.Features{
-				codersdk.FeatureExternalProvisionerDaemons: 1,
-				codersdk.FeatureMultipleOrganizations:      1,
-			},
-		},
-	})
-	altOrg := coderdenttest.CreateOrganization(t, adminClient, coderdenttest.CreateOrganizationOptions{
-		IncludeProvisionerDaemon: true,
-	})
-
-	vals.Notifications.FetchInterval = serpent.Duration(time.Minute)
-
-	mgr := config.NewManager(vals.Options())
-
-	// This field, as defined in codersdk/deployment.go, has the env of "CODER_NOTIFICATIONS_FETCH_INTERVAL".
-	field := &vals.Notifications.FetchInterval
-
-	require.NoError(t, mgr.AddOrgSettingOverride(altOrg.ID, field, "2m"))
-
-	// DON'T DO THIS!!!
-	setting, err := config.ResolveForOrgByName(mgr, altOrg.ID, "CODER_NOTIFICATIONS_FETCH_INTERVAL")
-	require.NoError(t, err)
-	require.Equal(t, "2m", setting)
-
-	// DO THIS INSTEAD!
-	dur, err := config.ResolveForOrgByOption(mgr, altOrg.ID, field)
-	require.NoError(t, err)
-	require.Equal(t, time.Minute*2, dur.Value())
 }

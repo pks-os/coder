@@ -498,8 +498,11 @@ func (s *SMTPHandler) validateToAddrs(to string) ([]string, error) {
 // Does not allow overriding.
 // nolint:revive // documented.
 func (s *SMTPHandler) smarthost() (string, string, error) {
-	host := s.cfg.Smarthost.Host
-	port := s.cfg.Smarthost.Port
+	// TODO: org-scoped
+	sh := s.cfg.Smarthost.GlobalValue()
+
+	host := sh.Host
+	port := sh.Port
 
 	// We don't validate the contents themselves; this will be done by the underlying SMTP library.
 	if host == "" {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/coder/coder/v2/buildinfo"
 	"github.com/coder/coder/v2/coderd/agentmetrics"
+	"github.com/coder/coder/v2/coderd/config"
 	"github.com/coder/coder/v2/coderd/workspaceapps/appurl"
 )
 
@@ -512,29 +513,29 @@ type OIDCConfig struct {
 	ClientID     serpent.String `json:"client_id" typescript:",notnull"`
 	ClientSecret serpent.String `json:"client_secret" typescript:",notnull"`
 	// ClientKeyFile & ClientCertFile are used in place of ClientSecret for PKI auth.
-	ClientKeyFile       serpent.String                      `json:"client_key_file" typescript:",notnull"`
-	ClientCertFile      serpent.String                      `json:"client_cert_file" typescript:",notnull"`
-	EmailDomain         serpent.StringArray                 `json:"email_domain" typescript:",notnull"`
-	IssuerURL           serpent.String                      `json:"issuer_url" typescript:",notnull"`
-	Scopes              serpent.StringArray                 `json:"scopes" typescript:",notnull"`
-	IgnoreEmailVerified serpent.Bool                        `json:"ignore_email_verified" typescript:",notnull"`
-	UsernameField       serpent.String                      `json:"username_field" typescript:",notnull"`
-	NameField           serpent.String                      `json:"name_field" typescript:",notnull"`
-	EmailField          serpent.String                      `json:"email_field" typescript:",notnull"`
-	AuthURLParams       serpent.Struct[map[string]string]   `json:"auth_url_params" typescript:",notnull"`
-	IgnoreUserInfo      serpent.Bool                        `json:"ignore_user_info" typescript:",notnull"`
-	GroupAutoCreate     serpent.Bool                        `json:"group_auto_create" typescript:",notnull"`
-	GroupRegexFilter    serpent.Regexp                      `json:"group_regex_filter" typescript:",notnull"`
-	GroupAllowList      serpent.StringArray                 `json:"group_allow_list" typescript:",notnull"`
-	GroupField          serpent.String                      `json:"groups_field" typescript:",notnull"`
-	GroupMapping        serpent.Struct[map[string]string]   `json:"group_mapping" typescript:",notnull"`
-	UserRoleField       serpent.String                      `json:"user_role_field" typescript:",notnull"`
-	UserRoleMapping     serpent.Struct[map[string][]string] `json:"user_role_mapping" typescript:",notnull"`
-	UserRolesDefault    serpent.StringArray                 `json:"user_roles_default" typescript:",notnull"`
-	SignInText          serpent.String                      `json:"sign_in_text" typescript:",notnull"`
-	IconURL             serpent.URL                         `json:"icon_url" typescript:",notnull"`
-	SignupsDisabledText serpent.String                      `json:"signups_disabled_text" typescript:",notnull"`
-	SkipIssuerChecks    serpent.Bool                        `json:"skip_issuer_checks" typescript:",notnull"`
+	ClientKeyFile       serpent.String                                       `json:"client_key_file" typescript:",notnull"`
+	ClientCertFile      serpent.String                                       `json:"client_cert_file" typescript:",notnull"`
+	EmailDomain         serpent.StringArray                                  `json:"email_domain" typescript:",notnull"`
+	IssuerURL           serpent.String                                       `json:"issuer_url" typescript:",notnull"`
+	Scopes              serpent.StringArray                                  `json:"scopes" typescript:",notnull"`
+	IgnoreEmailVerified serpent.Bool                                         `json:"ignore_email_verified" typescript:",notnull"`
+	UsernameField       serpent.String                                       `json:"username_field" typescript:",notnull"`
+	NameField           serpent.String                                       `json:"name_field" typescript:",notnull"`
+	EmailField          serpent.String                                       `json:"email_field" typescript:",notnull"`
+	AuthURLParams       config.OrgScoped[*serpent.Struct[map[string]string]] `json:"auth_url_params" typescript:",notnull"`
+	IgnoreUserInfo      serpent.Bool                                         `json:"ignore_user_info" typescript:",notnull"`
+	GroupAutoCreate     serpent.Bool                                         `json:"group_auto_create" typescript:",notnull"`
+	GroupRegexFilter    serpent.Regexp                                       `json:"group_regex_filter" typescript:",notnull"`
+	GroupAllowList      serpent.StringArray                                  `json:"group_allow_list" typescript:",notnull"`
+	GroupField          serpent.String                                       `json:"groups_field" typescript:",notnull"`
+	GroupMapping        serpent.Struct[map[string]string]                    `json:"group_mapping" typescript:",notnull"`
+	UserRoleField       serpent.String                                       `json:"user_role_field" typescript:",notnull"`
+	UserRoleMapping     serpent.Struct[map[string][]string]                  `json:"user_role_mapping" typescript:",notnull"`
+	UserRolesDefault    serpent.StringArray                                  `json:"user_roles_default" typescript:",notnull"`
+	SignInText          serpent.String                                       `json:"sign_in_text" typescript:",notnull"`
+	IconURL             serpent.URL                                          `json:"icon_url" typescript:",notnull"`
+	SignupsDisabledText serpent.String                                       `json:"signups_disabled_text" typescript:",notnull"`
+	SkipIssuerChecks    serpent.Bool                                         `json:"skip_issuer_checks" typescript:",notnull"`
 }
 
 type TelemetryConfig struct {
@@ -682,9 +683,9 @@ type NotificationsConfig struct {
 
 type NotificationsEmailConfig struct {
 	// The sender's address.
-	From serpent.String `json:"from" typescript:",notnull"`
+	From config.OrgScoped[*serpent.String] `json:"from" typescript:",notnull"`
 	// The intermediary SMTP host through which emails are sent (host:port).
-	Smarthost serpent.HostPort `json:"smarthost" typescript:",notnull"`
+	Smarthost config.OrgScoped[*serpent.HostPort] `json:"smarthost" typescript:",notnull"`
 	// The hostname identifying the SMTP server.
 	Hello serpent.String `json:"hello" typescript:",notnull"`
 
@@ -2585,6 +2586,15 @@ Write out the current server config as YAML to stdout.`,
 			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 			Hidden:      true, // Hidden because most operators should not need to modify this.
 		},
+	}
+
+	for _, opt := range opts {
+		d, ok := opt.Value.(config.Initializer)
+		if !ok {
+			continue
+		}
+
+		d.Initialize(&opt)
 	}
 
 	return opts
