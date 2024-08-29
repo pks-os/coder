@@ -1187,6 +1187,11 @@
 					"title": "Using Organizations",
 					"description": "Learn how to use our (early access) Organizations functionality",
 					"path": "./guides/using-organizations.md"
+				},
+				{
+					"title": "Migrating Activity Reporting",
+					"description": "Learn how to use our (early access) Organizations functionality",
+					"path": "./guides/using-activity-refactor.md"
 				}
 			]
 		}
