@@ -134,6 +134,16 @@ func databaseImport(m dsl.Matcher) {
 		Where(m.File().PkgPath.Matches("github.com/coder/coder/v2/codersdk"))
 }
 
+// sdkImportFromDB enforces not importing any /codersdk from /database.
+//
+//nolint:unused,deadcode,varnamelen
+func sdkImportFromDB(m dsl.Matcher) {
+	m.Import("github.com/coder/coder/v2/codersdk")
+	m.Match("codersdk.$_").
+		Report("Do not import any codersdk types into database").
+		Where(m.File().PkgPath.Matches("github.com/coder/coder/v2/coderd/database"))
+}
+
 // doNotCallTFailNowInsideGoroutine enforces not calling t.FailNow or
 // functions that may themselves call t.FailNow in goroutines outside
 // the main test goroutine. See testing.go:834 for why.
