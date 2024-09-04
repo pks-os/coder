@@ -67,7 +67,6 @@ import (
 	"github.com/coder/coder/v2/coderd/notifications"
 	"github.com/coder/coder/v2/coderd/rbac"
 	"github.com/coder/coder/v2/coderd/rbac/policy"
-	"github.com/coder/coder/v2/coderd/runtimeconfig"
 	"github.com/coder/coder/v2/coderd/schedule"
 	"github.com/coder/coder/v2/coderd/telemetry"
 	"github.com/coder/coder/v2/coderd/unhanger"
@@ -255,10 +254,6 @@ func NewOptions(t testing.TB, options *Options) (func(http.Handler), context.Can
 	var acs dbauthz.AccessControlStore = dbauthz.AGPLTemplateAccessControlStore{}
 	accessControlStore.Store(&acs)
 
-	// runtimeManager does not use dbauthz.
-	// TODO: It probably should, but the init code for prod happens before dbauthz
-	// is ready.
-	runtimeManager := runtimeconfig.NewStoreManager(options.Database)
 	options.Database = dbauthz.New(options.Database, options.Authorizer, *options.Logger, accessControlStore)
 
 	// Some routes expect a deployment ID, so just make sure one exists.
@@ -487,7 +482,6 @@ func NewOptions(t testing.TB, options *Options) (func(http.Handler), context.Can
 			AppHostnameRegex:               appHostnameRegex,
 			Logger:                         *options.Logger,
 			CacheDir:                       t.TempDir(),
-			RuntimeConfig:                  runtimeManager,
 			Database:                       options.Database,
 			Pubsub:                         options.Pubsub,
 			ExternalAuthConfigs:            options.ExternalAuthConfigs,

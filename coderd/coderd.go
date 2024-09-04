@@ -39,7 +39,6 @@ import (
 	"cdr.dev/slog"
 	"github.com/coder/coder/v2/coderd/entitlements"
 	"github.com/coder/coder/v2/coderd/idpsync"
-	"github.com/coder/coder/v2/coderd/runtimeconfig"
 	"github.com/coder/quartz"
 	"github.com/coder/serpent"
 
@@ -136,7 +135,6 @@ type Options struct {
 	Logger           slog.Logger
 	Database         database.Store
 	Pubsub           pubsub.Pubsub
-	RuntimeConfig    runtimeconfig.Manager
 
 	// CacheDir is used for caching files served by the API.
 	CacheDir string
