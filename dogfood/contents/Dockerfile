@@ -106,7 +106,7 @@ ARG DEBIAN_FRONTEND="noninteractive"
 # the default mirror with teraswitch.
 RUN apt-get update && apt-get install --yes ca-certificates
 
-COPY files /
+COPY --chown=0:0 files /
 
 # We used to copy /etc/sudoers.d/* in from files/ but this causes issues with
 # permissions and layer caching. Instead, create the file directly.
