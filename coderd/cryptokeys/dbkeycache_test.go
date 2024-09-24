@@ -31,7 +31,7 @@ func TestDBKeyCache(t *testing.T) {
 		)
 
 		_, err := cryptokeys.NewDBKeyCache(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, withClock(clock))
-		require.ErrorIs(t, err, cryptokeys.ErrKeyNotFound)
+		require.NoError(t, err)
 	})
 
 	t.Run("Version", func(t *testing.T) {

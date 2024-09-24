@@ -39,6 +39,7 @@ func NewDBKeyCache(ctx context.Context, logger slog.Logger, db database.Store, f
 	for _, opt := range opts {
 		opt(d)
 	}
+
 	err := d.newCache(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("new cache: %w", err)
@@ -115,6 +116,14 @@ func (d *DBKeyCache) Latest(ctx context.Context) (database.CryptoKey, error) {
 		return database.CryptoKey{}, xerrors.Errorf("new cache: %w", err)
 	}
 
+	if len(d.cache) == 0 {
+		return database.CryptoKey{}, ErrKeyNotFound
+	}
+
+	if !d.latestKey.IsActive(now) {
+		return database.CryptoKey{}, ErrKeyInvalid
+	}
+
 	return d.latestKey, nil
 }
 
@@ -135,12 +144,7 @@ func (d *DBKeyCache) newCache(ctx context.Context) error {
 	if err != nil {
 		return xerrors.Errorf("get crypto keys by feature: %w", err)
 	}
-	if len(keys) == 0 {
-		return ErrKeyNotFound
-	}
-
 	cache := toMap(keys)
-
 	var latest database.CryptoKey
 	for _, key := range keys {
 		if !key.IsActive(now) {
@@ -148,10 +152,6 @@ func (d *DBKeyCache) newCache(ctx context.Context) error {
 		}
 		latest = key
 		break
-	}
-
-	if latest.IsInvalid(now) {
-		return ErrKeyInvalid
 	}
 
 	d.cache = cache
