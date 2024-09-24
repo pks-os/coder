@@ -12,6 +12,7 @@ import (
 	"cdr.dev/slog"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/quartz"
 )
 
@@ -22,8 +23,6 @@ const (
 
 	// defaultRotationInterval is the default interval at which keys are checked for rotation.
 	defaultRotationInterval = time.Minute * 10
-	// DefaultKeyDuration is the default duration for which a key is valid. It applies to all features.
-	DefaultKeyDuration = time.Hour * 24 * 30
 )
 
 // rotator is responsible for rotating keys in the database.
@@ -58,7 +57,7 @@ func StartRotator(ctx context.Context, logger slog.Logger, db database.Store, op
 		db:          db,
 		logger:      logger,
 		clock:       quartz.NewReal(),
-		keyDuration: DefaultKeyDuration,
+		keyDuration: codersdk.DefaultSigningKeyDuration,
 		features:    database.AllCryptoKeyFeatureValues(),
 	}
 

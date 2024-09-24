@@ -391,6 +391,7 @@ type DeploymentValues struct {
 	CLIUpgradeMessage               serpent.String                       `json:"cli_upgrade_message,omitempty" typescript:",notnull"`
 	TermsOfServiceURL               serpent.String                       `json:"terms_of_service_url,omitempty" typescript:",notnull"`
 	Notifications                   NotificationsConfig                  `json:"notifications,omitempty" typescript:",notnull"`
+	SigningKeyDuration              serpent.Duration                     `json:"signing_key_duration,omitempty" typescript:",notnull"`
 
 	Config      serpent.YAMLConfigPath `json:"config,omitempty" typescript:",notnull"`
 	WriteConfig serpent.Bool           `json:"write_config,omitempty" typescript:",notnull"`
@@ -2674,6 +2675,18 @@ Write out the current server config as YAML to stdout.`,
 			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 			Hidden:      true, // Hidden because most operators should not need to modify this.
 		},
+		{
+			Name:        "Key Rotation Interval",
+			Description: "How often to rotate internal signing keys.",
+			Flag:        "key-rotation-interval",
+			Env:         "CODER_KEY_ROTATION_INTERVAL",
+			Value:       &c.SigningKeyDuration,
+			Default:     DefaultSigningKeyDuration.String(),
+			YAML:        "keyRotationInterval",
+			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
+			// TODO(JonA): Unhide this when everything is wired up.
+			Hidden: true,
+		},
 	}
 
 	return opts
@@ -3103,3 +3116,7 @@ func (c *Client) SSHConfiguration(ctx context.Context) (SSHConfigResponse, error
 	var sshConfig SSHConfigResponse
 	return sshConfig, json.NewDecoder(res.Body).Decode(&sshConfig)
 }
+
+const (
+	DefaultSigningKeyDuration = time.Hour * 24 * 30
+)
