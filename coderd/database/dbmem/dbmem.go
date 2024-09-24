@@ -2428,6 +2428,10 @@ func (q *FakeQuerier) GetCryptoKeys(_ context.Context) ([]database.CryptoKey, er
 	return keys, nil
 }
 
+func (q *FakeQuerier) GetCryptoKeysByFeature(ctx context.Context, feature database.CryptoKeyFeature) ([]database.CryptoKey, error) {
+	panic("not implemented")
+}
+
 func (q *FakeQuerier) GetDBCryptKeys(_ context.Context) ([]database.DBCryptKey, error) {
 	q.mutex.RLock()
 	defer q.mutex.RUnlock()

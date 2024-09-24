@@ -1405,6 +1405,10 @@ func (q *querier) GetCryptoKeys(ctx context.Context) ([]database.CryptoKey, erro
 	return q.db.GetCryptoKeys(ctx)
 }
 
+func (q *querier) GetCryptoKeysByFeature(ctx context.Context, feature database.CryptoKeyFeature) ([]database.CryptoKey, error) {
+	panic("not implemented")
+}
+
 func (q *querier) GetDBCryptKeys(ctx context.Context) ([]database.DBCryptKey, error) {
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
 		return nil, err
