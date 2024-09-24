@@ -23,3 +23,11 @@ Bing bong
 ### H4 (beta)
 
 dolar
+
+## Feature 1 (Alpha)
+
+## Feature 2 (Beta)
+
+## Feature 3 (Enterprise)
+
+## Feature 4 (Premium)
