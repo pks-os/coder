@@ -1,4 +1,4 @@
-package keychain
+package cryptokeys
 
 import (
 	"database/sql"

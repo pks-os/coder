@@ -1,4 +1,4 @@
-package keychain_test
+package cryptokeys_test
 
 import (
 	"database/sql"
@@ -12,7 +12,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbgen"
 	"github.com/coder/coder/v2/coderd/database/dbtestutil"
-	"github.com/coder/coder/v2/coderd/keychain"
+	"github.com/coder/coder/v2/coderd/cryptokeys"
 	"github.com/coder/coder/v2/testutil"
 	"github.com/coder/quartz"
 )
@@ -30,8 +30,8 @@ func TestDBKeychain(t *testing.T) {
 			logger = slogtest.Make(t, nil)
 		)
 
-		_, err := keychain.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
-		require.ErrorIs(t, err, keychain.ErrKeyNotFound)
+		_, err := cryptokeys.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
+		require.ErrorIs(t, err, cryptokeys.ErrKeyNotFound)
 	})
 
 	t.Run("Version", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestDBKeychain(t *testing.T) {
 				StartsAt: clock.Now().UTC(),
 			})
 
-			k, err := keychain.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
+			k, err := cryptokeys.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
 			require.NoError(t, err)
 
 			got, err := k.Version(ctx, key.Sequence)
@@ -85,7 +85,7 @@ func TestDBKeychain(t *testing.T) {
 				StartsAt: clock.Now().UTC(),
 			})
 
-			k, err := keychain.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
+			k, err := cryptokeys.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
 			require.NoError(t, err)
 
 			key := dbgen.CryptoKey(t, db, database.CryptoKey{
@@ -132,7 +132,7 @@ func TestDBKeychain(t *testing.T) {
 			StartsAt: clock.Now().UTC(),
 		})
 
-		k, err := keychain.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
+		k, err := cryptokeys.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
 		require.NoError(t, err)
 
 		got, err := k.Latest(ctx)
@@ -169,7 +169,7 @@ func TestDBKeychain(t *testing.T) {
 			},
 		})
 		trap := clock.Trap().TickerFunc()
-		k, err := keychain.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
+		k, err := cryptokeys.NewDBKeychain(ctx, logger, db, database.CryptoKeyFeatureWorkspaceApps, clock)
 		require.NoError(t, err)
 
 		// Should be able to fetch the expiring key since it's still valid.
@@ -205,6 +205,6 @@ func TestDBKeychain(t *testing.T) {
 		// The expiring key should be gone.
 
 		_, err = k.Version(ctx, expiringKey.Sequence)
-		require.ErrorIs(t, err, keychain.ErrKeyNotFound)
+		require.ErrorIs(t, err, cryptokeys.ErrKeyNotFound)
 	})
 }
