@@ -13,28 +13,31 @@ import (
 	"github.com/coder/quartz"
 )
 
-// DBKeychain implements Keychain for callers with access to the database.
-type DBKeychain struct {
+// DBKeyCache implements KeyCache for callers with access to the database.
+type DBKeyCache struct {
+	Clock   quartz.Clock
 	db      database.Store
 	feature database.CryptoKeyFeature
-	clock   quartz.Clock
 	logger  slog.Logger
 
-	// The following are initialized by NewDBKeychain.
+	// The following are initialized by NewDBKeyCache.
 	cacheMu   sync.RWMutex
 	cache     map[int32]database.CryptoKey
 	latestKey database.CryptoKey
 }
 
-// NewDBKeychain creates a new DBKeychain. It starts a background
+// NewDBKeyCache creates a new DBKeyCache. It starts a background
 // process that periodically refreshes the cache. The context should
 // be canceled to stop the background process.
-func NewDBKeychain(ctx context.Context, logger slog.Logger, db database.Store, feature database.CryptoKeyFeature, clock quartz.Clock) (*DBKeychain, error) {
-	d := &DBKeychain{
+func NewDBKeyCache(ctx context.Context, logger slog.Logger, db database.Store, feature database.CryptoKeyFeature, opts ...func(*DBKeyCache)) (*DBKeyCache, error) {
+	d := &DBKeyCache{
 		db:      db,
 		feature: feature,
-		clock:   clock,
+		Clock:   quartz.NewReal(),
 		logger:  logger,
+	}
+	for _, opt := range opts {
+		opt(d)
 	}
 	err := d.newCache(ctx)
 	if err != nil {
@@ -47,8 +50,8 @@ func NewDBKeychain(ctx context.Context, logger slog.Logger, db database.Store, f
 
 // Version returns the CryptoKey with the given sequence number, provided that
 // it is not deleted or has breached its deletion date.
-func (d *DBKeychain) Version(ctx context.Context, sequence int32) (database.CryptoKey, error) {
-	now := d.clock.Now().UTC()
+func (d *DBKeyCache) Version(ctx context.Context, sequence int32) (database.CryptoKey, error) {
+	now := d.Clock.Now().UTC()
 	d.cacheMu.RLock()
 	key, ok := d.cache[sequence]
 	d.cacheMu.RUnlock()
@@ -91,9 +94,9 @@ func (d *DBKeychain) Version(ctx context.Context, sequence int32) (database.Cryp
 	return key, nil
 }
 
-func (d *DBKeychain) Latest(ctx context.Context) (database.CryptoKey, error) {
+func (d *DBKeyCache) Latest(ctx context.Context) (database.CryptoKey, error) {
 	d.cacheMu.RLock()
-	now := d.clock.Now().UTC()
+	now := d.Clock.Now().UTC()
 	if d.latestKey.IsActive(now) {
 		d.cacheMu.RUnlock()
 		return d.latestKey, nil
@@ -115,8 +118,8 @@ func (d *DBKeychain) Latest(ctx context.Context) (database.CryptoKey, error) {
 	return d.latestKey, nil
 }
 
-func (d *DBKeychain) refreshCache(ctx context.Context) {
-	d.clock.TickerFunc(ctx, time.Minute*10, func() error {
+func (d *DBKeyCache) refreshCache(ctx context.Context) {
+	d.Clock.TickerFunc(ctx, time.Minute*10, func() error {
 		d.cacheMu.Lock()
 		defer d.cacheMu.Unlock()
 		if err := d.newCache(ctx); err != nil {
@@ -126,8 +129,8 @@ func (d *DBKeychain) refreshCache(ctx context.Context) {
 	})
 }
 
-func (d *DBKeychain) newCache(ctx context.Context) error {
-	now := d.clock.Now().UTC()
+func (d *DBKeyCache) newCache(ctx context.Context) error {
+	now := d.Clock.Now().UTC()
 	keys, err := d.db.GetCryptoKeysByFeature(ctx, d.feature)
 	if err != nil {
 		return xerrors.Errorf("get crypto keys by feature: %w", err)

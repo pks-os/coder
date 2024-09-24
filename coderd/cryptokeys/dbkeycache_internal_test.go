@@ -40,11 +40,11 @@ func Test_Version(t *testing.T) {
 			32: expectedKey,
 		}
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
 			cache:   cache,
-			clock:   clock,
+			Clock:   clock,
 		}
 
 		got, err := k.Version(ctx, 32)
@@ -77,11 +77,11 @@ func Test_Version(t *testing.T) {
 			Sequence: 33,
 		}).Return(expectedKey, nil)
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
 			cache:   map[int32]database.CryptoKey{},
-			clock:   clock,
+			Clock:   clock,
 		}
 
 		got, err := k.Version(ctx, 33)
@@ -115,11 +115,11 @@ func Test_Version(t *testing.T) {
 			},
 		}
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
 			cache:   cache,
-			clock:   clock,
+			Clock:   clock,
 		}
 
 		_, err := k.Version(ctx, 32)
@@ -153,11 +153,11 @@ func Test_Version(t *testing.T) {
 			Sequence: 32,
 		}).Return(invalidKey, nil)
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
 			cache:   map[int32]database.CryptoKey{},
-			clock:   clock,
+			Clock:   clock,
 		}
 
 		_, err := k.Version(ctx, 32)
@@ -187,10 +187,10 @@ func Test_Latest(t *testing.T) {
 			},
 			StartsAt: clock.Now().UTC(),
 		}
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:        mockDB,
 			feature:   database.CryptoKeyFeatureWorkspaceApps,
-			clock:     clock,
+			Clock:     clock,
 			latestKey: latestKey,
 		}
 
@@ -221,10 +221,10 @@ func Test_Latest(t *testing.T) {
 
 		mockDB.EXPECT().GetCryptoKeysByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps).Return([]database.CryptoKey{latestKey}, nil)
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
-			clock:   clock,
+			Clock:   clock,
 			latestKey: database.CryptoKey{
 				Feature:  database.CryptoKeyFeatureWorkspaceApps,
 				Sequence: 32,
@@ -277,10 +277,10 @@ func Test_Latest(t *testing.T) {
 
 		mockDB.EXPECT().GetCryptoKeysByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps).Return([]database.CryptoKey{inactiveKey, activeKey}, nil)
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
-			clock:   clock,
+			Clock:   clock,
 			cache:   map[int32]database.CryptoKey{},
 		}
 
@@ -325,10 +325,10 @@ func Test_Latest(t *testing.T) {
 
 		mockDB.EXPECT().GetCryptoKeysByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps).Return([]database.CryptoKey{inactiveKey, invalidKey}, nil)
 
-		k := &DBKeychain{
+		k := &DBKeyCache{
 			db:      mockDB,
 			feature: database.CryptoKeyFeatureWorkspaceApps,
-			clock:   clock,
+			Clock:   clock,
 			cache:   map[int32]database.CryptoKey{},
 		}
 
