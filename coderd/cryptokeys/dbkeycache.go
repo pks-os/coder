@@ -40,12 +40,13 @@ func NewDBKeyCache(ctx context.Context, logger slog.Logger, db database.Store, f
 		opt(d)
 	}
 
-	err := d.newCache(ctx)
+	cache, latest, err := d.newCache(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("new cache: %w", err)
 	}
+	d.cache, d.latestKey = cache, latest
 
-	go d.refreshCache(ctx)
+	go d.refresh(ctx)
 	return d, nil
 }
 
@@ -111,38 +112,44 @@ func (d *DBKeyCache) Latest(ctx context.Context) (database.CryptoKey, error) {
 		return d.latestKey, nil
 	}
 
-	err := d.newCache(ctx)
+	cache, latest, err := d.newCache(ctx)
 	if err != nil {
 		return database.CryptoKey{}, xerrors.Errorf("new cache: %w", err)
 	}
 
-	if len(d.cache) == 0 {
+	if len(cache) == 0 {
 		return database.CryptoKey{}, ErrKeyNotFound
 	}
 
-	if !d.latestKey.IsActive(now) {
+	if !latest.IsActive(now) {
 		return database.CryptoKey{}, ErrKeyInvalid
 	}
+
+	d.cache, d.latestKey = cache, latest
 
 	return d.latestKey, nil
 }
 
-func (d *DBKeyCache) refreshCache(ctx context.Context) {
+func (d *DBKeyCache) refresh(ctx context.Context) {
 	d.Clock.TickerFunc(ctx, time.Minute*10, func() error {
+		cache, latest, err := d.newCache(ctx)
+		if err != nil {
+			d.logger.Error(ctx, "failed to refresh cache", slog.Error(err))
+			return nil
+		}
 		d.cacheMu.Lock()
 		defer d.cacheMu.Unlock()
-		if err := d.newCache(ctx); err != nil {
-			d.logger.Error(ctx, "failed to refresh cache", slog.Error(err))
-		}
+
+		d.cache, d.latestKey = cache, latest
 		return nil
 	})
 }
 
-func (d *DBKeyCache) newCache(ctx context.Context) error {
+func (d *DBKeyCache) newCache(ctx context.Context) (map[int32]database.CryptoKey, database.CryptoKey, error) {
 	now := d.Clock.Now().UTC()
 	keys, err := d.db.GetCryptoKeysByFeature(ctx, d.feature)
 	if err != nil {
-		return xerrors.Errorf("get crypto keys by feature: %w", err)
+		return nil, database.CryptoKey{}, xerrors.Errorf("get crypto keys by feature: %w", err)
 	}
 	cache := toMap(keys)
 	var latest database.CryptoKey
@@ -154,9 +161,7 @@ func (d *DBKeyCache) newCache(ctx context.Context) error {
 		break
 	}
 
-	d.cache = cache
-	d.latestKey = latest
-	return nil
+	return cache, latest, nil
 }
 
 func toMap(keys []database.CryptoKey) map[int32]database.CryptoKey {
