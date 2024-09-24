@@ -14,7 +14,7 @@ import (
 	"github.com/coder/quartz"
 )
 
-func Test_version(t *testing.T) {
+func Test_Version(t *testing.T) {
 	t.Parallel()
 
 	t.Run("HitsCache", func(t *testing.T) {
@@ -165,7 +165,7 @@ func Test_version(t *testing.T) {
 	})
 }
 
-func Test_latest(t *testing.T) {
+func Test_Latest(t *testing.T) {
 	t.Parallel()
 
 	t.Run("HitsCache", func(t *testing.T) {
