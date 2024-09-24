@@ -98,18 +98,19 @@ func (d *DBKeyCache) Version(ctx context.Context, sequence int32) (database.Cryp
 
 func (d *DBKeyCache) Latest(ctx context.Context) (database.CryptoKey, error) {
 	d.cacheMu.RLock()
-	now := d.Clock.Now().UTC()
-	if d.latestKey.IsActive(now) {
-		d.cacheMu.RUnlock()
-		return d.latestKey, nil
-	}
+	latest := d.latestKey
 	d.cacheMu.RUnlock()
+
+	now := d.Clock.Now().UTC()
+	if latest.IsActive(now) {
+		return latest, nil
+	}
 
 	d.cacheMu.Lock()
 	defer d.cacheMu.Unlock()
 
-	if d.latestKey.IsActive(now) {
-		return d.latestKey, nil
+	if latest.IsActive(now) {
+		return latest, nil
 	}
 
 	cache, latest, err := d.newCache(ctx)
@@ -153,6 +154,7 @@ func (d *DBKeyCache) newCache(ctx context.Context) (map[int32]database.CryptoKey
 	}
 	cache := toMap(keys)
 	var latest database.CryptoKey
+	// Keys are returned in order from highest sequence to lowest.
 	for _, key := range keys {
 		if !key.IsActive(now) {
 			continue
