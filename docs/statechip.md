@@ -28,6 +28,16 @@ dolar
 
 ## Feature 2 (Beta)
 
+Lorem ipsum
+
 ## Feature 3 (Enterprise)
 
+lorem ipsum
+
 ## Feature 4 (Premium)
+
+lorem ipsum
+
+## No header (but parenthesis)
+
+lorem ipsum
