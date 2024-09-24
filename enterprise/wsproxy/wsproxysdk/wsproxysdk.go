@@ -228,9 +228,9 @@ func (c CryptoKey) Active(now time.Time) bool {
 
 func (c CryptoKey) Invalid(now time.Time) bool {
 	now = now.UTC()
-	hasSecret := c.Secret != ""
-	beforeDelete := c.DeletesAt.IsZero() || !now.Before(c.DeletesAt.UTC())
-	return hasSecret && beforeDelete
+	noSecret := c.Secret == ""
+	afterDelete := !c.DeletesAt.IsZero() && !now.Before(c.DeletesAt.UTC())
+	return noSecret || afterDelete
 }
 
 type RegisterWorkspaceProxyResponse struct {

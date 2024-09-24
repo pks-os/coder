@@ -136,7 +136,7 @@ func toKeyMap(keys []wsproxysdk.CryptoKey, now time.Time) (map[int32]wsproxysdk.
 	var latest wsproxysdk.CryptoKey
 	for _, key := range keys {
 		m[key.Sequence] = key
-		if key.Sequence > latest.Sequence && !now.Before(key.StartsAt.UTC()) {
+		if key.Sequence > latest.Sequence && key.Active(now) {
 			latest = key
 		}
 	}
