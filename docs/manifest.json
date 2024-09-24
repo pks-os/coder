@@ -4,6 +4,16 @@
 	],
 	"routes": [
 		{
+			"title": "Chip Demo",
+			"description": "State Demo",
+			"path": "./README.md",
+			"icon_path": "./images/icons/home.svg",
+			"state": [
+				"premium",
+				"beta"
+			]
+		},
+		{
 			"title": "About",
 			"description": "About Coder",
 			"path": "./README.md",
