@@ -698,16 +698,7 @@ func (api *API) workspaceProxyRegister(rw http.ResponseWriter, r *http.Request) 
 		siblingsRes = append(siblingsRes, convertReplica(replica))
 	}
 
-	keys, err := api.Database.GetCryptoKeysByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps)
-	if err != nil {
-		httpapi.InternalServerError(rw, err)
-		return
-	}
-
 	httpapi.Write(ctx, rw, http.StatusCreated, wsproxysdk.RegisterWorkspaceProxyResponse{
-		SigningKeysResponse: wsproxysdk.SigningKeysResponse{
-			SigningKeys: fromDBCryptoKeys(keys),
-		},
 		AppSecurityKey:      api.AppSecurityKey.String(),
 		DERPMeshKey:         api.DERPServer.MeshKey(),
 		DERPRegionID:        regionID,
@@ -719,7 +710,7 @@ func (api *API) workspaceProxyRegister(rw http.ResponseWriter, r *http.Request) 
 	go api.forceWorkspaceProxyHealthUpdate(api.ctx)
 }
 
-func (api *API) workspaceProxySigningKeys(rw http.ResponseWriter, r *http.Request) {
+func (api *API) workspaceProxyCryptoKeys(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	keys, err := api.Database.GetCryptoKeysByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps)
@@ -728,8 +719,8 @@ func (api *API) workspaceProxySigningKeys(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	httpapi.Write(ctx, rw, http.StatusOK, wsproxysdk.SigningKeysResponse{
-		SigningKeys: fromDBCryptoKeys(keys),
+	httpapi.Write(ctx, rw, http.StatusOK, wsproxysdk.CryptoKeysResponse{
+		CryptoKeys: fromDBCryptoKeys(keys),
 	})
 }
 
@@ -991,10 +982,10 @@ func (w *workspaceProxiesFetchUpdater) Update(ctx context.Context) error {
 	return w.updateFunc(ctx)
 }
 
-func fromDBCryptoKeys(keys []database.CryptoKey) []wsproxysdk.SigningKey {
-	wskeys := make([]wsproxysdk.SigningKey, 0, len(keys))
+func fromDBCryptoKeys(keys []database.CryptoKey) []wsproxysdk.CryptoKey {
+	wskeys := make([]wsproxysdk.CryptoKey, 0, len(keys))
 	for _, key := range keys {
-		wskeys = append(wskeys, wsproxysdk.SigningKey{
+		wskeys = append(wskeys, wsproxysdk.CryptoKey{
 			Feature:   wsproxysdk.CryptoKeyFeature(key.Feature),
 			Secret:    key.Secret.String,
 			DeletesAt: key.DeletesAt.Time,

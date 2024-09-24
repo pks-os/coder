@@ -13,6 +13,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbgen"
 	"github.com/coder/coder/v2/coderd/database/dbtestutil"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/testutil"
 	"github.com/coder/quartz"
 )
@@ -59,7 +60,7 @@ func TestRotator(t *testing.T) {
 
 		rotatingKey := dbgen.CryptoKey(t, db, database.CryptoKey{
 			Feature:  database.CryptoKeyFeatureWorkspaceApps,
-			StartsAt: now.Add(-cryptokeys.DefaultKeyDuration + time.Hour + time.Minute),
+			StartsAt: now.Add(-codersdk.DefaultSigningKeyDuration + time.Hour + time.Minute),
 			Sequence: 12345,
 		})
 
@@ -88,14 +89,14 @@ func TestRotator(t *testing.T) {
 		newKey, err := db.GetLatestCryptoKeyByFeature(ctx, database.CryptoKeyFeatureWorkspaceApps)
 		require.NoError(t, err)
 		require.Equal(t, rotatingKey.Sequence+1, newKey.Sequence)
-		require.Equal(t, rotatingKey.ExpiresAt(cryptokeys.DefaultKeyDuration), newKey.StartsAt.UTC())
+		require.Equal(t, rotatingKey.ExpiresAt(codersdk.DefaultSigningKeyDuration), newKey.StartsAt.UTC())
 		require.False(t, newKey.DeletesAt.Valid)
 
 		oldKey, err := db.GetCryptoKeyByFeatureAndSequence(ctx, database.GetCryptoKeyByFeatureAndSequenceParams{
 			Feature:  rotatingKey.Feature,
 			Sequence: rotatingKey.Sequence,
 		})
-		expectedDeletesAt := rotatingKey.StartsAt.Add(cryptokeys.DefaultKeyDuration + time.Hour + cryptokeys.WorkspaceAppsTokenDuration)
+		expectedDeletesAt := rotatingKey.StartsAt.Add(codersdk.DefaultSigningKeyDuration + time.Hour + codersdk.DefaultSigningKeyDuration)
 		require.NoError(t, err)
 		require.Equal(t, rotatingKey.StartsAt, oldKey.StartsAt)
 		require.True(t, oldKey.DeletesAt.Valid)

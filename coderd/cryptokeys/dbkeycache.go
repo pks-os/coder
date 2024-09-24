@@ -59,7 +59,7 @@ func (d *DBKeyCache) Version(ctx context.Context, sequence int32) (database.Cryp
 	d.cacheMu.RUnlock()
 	if ok {
 		if key.IsInvalid(now) {
-			return database.CryptoKey{}, ErrKeyNotFound
+			return database.CryptoKey{}, ErrKeyInvalid
 		}
 		return key, nil
 	}

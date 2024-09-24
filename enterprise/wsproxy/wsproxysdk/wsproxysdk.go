@@ -212,16 +212,29 @@ const (
 	CryptoKeyFeatureTailnetResume CryptoKeyFeature = "tailnet_resume"
 )
 
-type SecurityKey struct {
+type CryptoKey struct {
 	Feature   CryptoKeyFeature `json:"feature"`
 	Secret    string           `json:"secret"`
-	ExpiresAt time.Time        `json:"expires_at"`
+	DeletesAt time.Time        `json:"deletes_at"`
 	Sequence  int32            `json:"sequence"`
 	StartsAt  time.Time        `json:"starts_at"`
 }
 
+func (c CryptoKey) Active(now time.Time) bool {
+	now = now.UTC()
+	isAfterStartsAt := !c.StartsAt.IsZero() && !now.Before(c.StartsAt)
+	return isAfterStartsAt && !c.Invalid(now)
+}
+
+func (c CryptoKey) Invalid(now time.Time) bool {
+	now = now.UTC()
+	hasSecret := c.Secret != ""
+	beforeDelete := c.DeletesAt.IsZero() || !now.Before(c.DeletesAt.UTC())
+	return hasSecret && beforeDelete
+}
+
 type RegisterWorkspaceProxyResponse struct {
-	Keys                []SecurityKey    `json:"keys"`
+	Keys                []CryptoKey      `json:"keys"`
 	AppSecurityKey      string           `json:"app_security_key"`
 	DERPMeshKey         string           `json:"derp_mesh_key"`
 	DERPRegionID        int32            `json:"derp_region_id"`
@@ -590,6 +603,27 @@ func (c *Client) DialCoordinator(ctx context.Context) (agpl.MultiAgentConn, erro
 	go rma.respLoop()
 
 	return ma, nil
+}
+
+type CryptoKeysResponse struct {
+	CryptoKeys []CryptoKey `json:"crypto_keys"`
+}
+
+func (c *Client) CryptoKeys(ctx context.Context) (CryptoKeysResponse, error) {
+	res, err := c.Request(ctx, http.MethodGet,
+		"/api/v2/workspaceproxies/me/crypto-keys",
+		nil,
+	)
+	if err != nil {
+		return CryptoKeysResponse{}, xerrors.Errorf("make request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return CryptoKeysResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp CryptoKeysResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 
 type remoteMultiAgentHandler struct {

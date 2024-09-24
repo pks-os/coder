@@ -33,7 +33,6 @@ import (
 	"github.com/coder/coder/v2/coderd"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/coderd/httpmw"
-	"github.com/coder/coder/v2/coderd/keychain"
 	"github.com/coder/coder/v2/coderd/tracing"
 	"github.com/coder/coder/v2/coderd/workspaceapps"
 	"github.com/coder/coder/v2/codersdk"
@@ -138,7 +137,6 @@ type Server struct {
 	replicaErrMut           sync.Mutex
 	replicaErr              string
 	latestDERPMap           atomic.Pointer[tailcfg.DERPMap]
-	latestKeychain          atomic.Pointer[keychain.Keychain]
 
 	// Used for graceful shutdown. Required for the dialer.
 	ctx           context.Context
