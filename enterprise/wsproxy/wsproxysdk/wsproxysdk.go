@@ -204,7 +204,24 @@ type RegisterWorkspaceProxyRequest struct {
 	Version string `json:"version"`
 }
 
+type CryptoKeyFeature string
+
+const (
+	CryptoKeyFeatureWorkspaceApp  CryptoKeyFeature = "workspace_apps"
+	CryptoKeyFeatureOIDCConvert   CryptoKeyFeature = "oidc_convert"
+	CryptoKeyFeatureTailnetResume CryptoKeyFeature = "tailnet_resume"
+)
+
+type SecurityKey struct {
+	Feature   CryptoKeyFeature `json:"feature"`
+	Secret    string           `json:"secret"`
+	ExpiresAt time.Time        `json:"expires_at"`
+	Sequence  int32            `json:"sequence"`
+	StartsAt  time.Time        `json:"starts_at"`
+}
+
 type RegisterWorkspaceProxyResponse struct {
+	Keys                []SecurityKey    `json:"keys"`
 	AppSecurityKey      string           `json:"app_security_key"`
 	DERPMeshKey         string           `json:"derp_mesh_key"`
 	DERPRegionID        int32            `json:"derp_region_id"`
@@ -371,11 +388,6 @@ func (l *RegisterWorkspaceProxyLoop) Start(ctx context.Context) (RegisterWorkspa
 			}
 			failedAttempts = 0
 
-			// Check for consistency.
-			if originalRes.AppSecurityKey != resp.AppSecurityKey {
-				l.failureFn(xerrors.New("app security key has changed, proxy must be restarted"))
-				return
-			}
 			if originalRes.DERPMeshKey != resp.DERPMeshKey {
 				l.failureFn(xerrors.New("DERP mesh key has changed, proxy must be restarted"))
 				return
