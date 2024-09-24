@@ -17,6 +17,16 @@
 			]
 		},
 		{
+			"title": "Chip Demo",
+			"description": "State Demo",
+			"path": "./statechip.md",
+			"icon_path": "./images/icons/home.svg",
+			"state": [
+				"premium",
+				"beta"
+			]
+		},
+		{
 			"title": "Architecture",
 			"description": "Learn about validated and reference architectures for Coder",
 			"path": "./architecture/architecture.md",
