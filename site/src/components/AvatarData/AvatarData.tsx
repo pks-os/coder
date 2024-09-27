@@ -1,13 +1,13 @@
 import { useTheme } from "@emotion/react";
 import { Avatar } from "components/Avatar/Avatar";
 import { Stack } from "components/Stack/Stack";
-import type { FC, ReactNode } from "react";
+import type { FC, ReactElement, ReactNode } from "react";
 
 export interface AvatarDataProps {
-	title: ReactNode;
+	title: string | ReactElement;
 	subtitle?: ReactNode;
 	src?: string;
-	avatar?: React.ReactNode;
+	avatar?: ReactNode;
 
 	/**
 	 * Useful for when you need to pass in a ReactNode for the title of the
@@ -34,7 +34,7 @@ export const AvatarData: FC<AvatarDataProps> = ({
 	if (!avatar) {
 		avatar = (
 			<Avatar background src={src}>
-				{title ?? imgFallbackText ?? "-"}
+				{typeof title === "string" ? title || "-" : (imgFallbackText ?? "-")}
 			</Avatar>
 		);
 	}
