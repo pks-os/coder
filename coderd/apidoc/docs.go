@@ -9896,6 +9896,14 @@ const docTemplate = `{
                 "password": {
                     "type": "string"
                 },
+                "user_status": {
+                    "description": "UserStatus defaults to UserStatusDormant.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.UserStatus"
+                        }
+                    ]
+                },
                 "username": {
                     "type": "string"
                 }
@@ -12265,6 +12273,7 @@ const docTemplate = `{
                 "group_member",
                 "idpsync_settings",
                 "license",
+                "notification_message",
                 "notification_preference",
                 "notification_template",
                 "oauth2_app",
@@ -12298,6 +12307,7 @@ const docTemplate = `{
                 "ResourceGroupMember",
                 "ResourceIdpsyncSettings",
                 "ResourceLicense",
+                "ResourceNotificationMessage",
                 "ResourceNotificationPreference",
                 "ResourceNotificationTemplate",
                 "ResourceOauth2App",
