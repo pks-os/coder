@@ -6736,23 +6736,33 @@ const getQuotaConsumedForUser = `-- name: GetQuotaConsumedForUser :one
 WITH latest_builds AS (
 SELECT
 	DISTINCT ON
-	(workspace_id) id,
-	workspace_id,
-	daily_cost
+	(wb.workspace_id) wb.workspace_id,
+	wb.daily_cost
 FROM
 	workspace_builds wb
+ -- This INNER JOIN prevents a seq scan of the workspace_builds table.
+ -- Limit the rows to the absolute minimum required, which is all workspaces
+ -- in a given organization for a given user.
+INNER JOIN
+	workspaces on wb.workspace_id = workspaces.id
+WHERE
+	workspaces.owner_id = $1 AND
+	workspaces.organization_id = $2
 ORDER BY
-	workspace_id,
-	created_at DESC
+	wb.workspace_id,
+	wb.created_at DESC
 )
 SELECT
 	coalesce(SUM(daily_cost), 0)::BIGINT
 FROM
 	workspaces
-JOIN latest_builds ON
+INNER JOIN latest_builds ON
 	latest_builds.workspace_id = workspaces.id
-WHERE NOT
-	deleted AND
+WHERE
+	NOT deleted AND
+	-- We can likely remove these conditions since we check above.
+	-- But it does not hurt to be defensive and make sure future query changes
+	-- do not break anything.
 	workspaces.owner_id = $1 AND
 	workspaces.organization_id = $2
 `
@@ -11444,7 +11454,11 @@ func (q *sqlQuerier) GetWorkspaceAgentMetadata(ctx context.Context, arg GetWorks
 }
 
 const getWorkspaceAgentScriptTimingsByBuildID = `-- name: GetWorkspaceAgentScriptTimingsByBuildID :many
-SELECT workspace_agent_script_timings.script_id, workspace_agent_script_timings.started_at, workspace_agent_script_timings.ended_at, workspace_agent_script_timings.exit_code, workspace_agent_script_timings.stage, workspace_agent_script_timings.status, workspace_agent_scripts.display_name
+SELECT
+	workspace_agent_script_timings.script_id, workspace_agent_script_timings.started_at, workspace_agent_script_timings.ended_at, workspace_agent_script_timings.exit_code, workspace_agent_script_timings.stage, workspace_agent_script_timings.status,
+	workspace_agent_scripts.display_name,
+	workspace_agents.id as workspace_agent_id,
+	workspace_agents.name as workspace_agent_name
 FROM workspace_agent_script_timings
 INNER JOIN workspace_agent_scripts ON workspace_agent_scripts.id = workspace_agent_script_timings.script_id
 INNER JOIN workspace_agents ON workspace_agents.id = workspace_agent_scripts.workspace_agent_id
@@ -11454,13 +11468,15 @@ WHERE workspace_builds.id = $1
 `
 
 type GetWorkspaceAgentScriptTimingsByBuildIDRow struct {
-	ScriptID    uuid.UUID                        `db:"script_id" json:"script_id"`
-	StartedAt   time.Time                        `db:"started_at" json:"started_at"`
-	EndedAt     time.Time                        `db:"ended_at" json:"ended_at"`
-	ExitCode    int32                            `db:"exit_code" json:"exit_code"`
-	Stage       WorkspaceAgentScriptTimingStage  `db:"stage" json:"stage"`
-	Status      WorkspaceAgentScriptTimingStatus `db:"status" json:"status"`
-	DisplayName string                           `db:"display_name" json:"display_name"`
+	ScriptID           uuid.UUID                        `db:"script_id" json:"script_id"`
+	StartedAt          time.Time                        `db:"started_at" json:"started_at"`
+	EndedAt            time.Time                        `db:"ended_at" json:"ended_at"`
+	ExitCode           int32                            `db:"exit_code" json:"exit_code"`
+	Stage              WorkspaceAgentScriptTimingStage  `db:"stage" json:"stage"`
+	Status             WorkspaceAgentScriptTimingStatus `db:"status" json:"status"`
+	DisplayName        string                           `db:"display_name" json:"display_name"`
+	WorkspaceAgentID   uuid.UUID                        `db:"workspace_agent_id" json:"workspace_agent_id"`
+	WorkspaceAgentName string                           `db:"workspace_agent_name" json:"workspace_agent_name"`
 }
 
 func (q *sqlQuerier) GetWorkspaceAgentScriptTimingsByBuildID(ctx context.Context, id uuid.UUID) ([]GetWorkspaceAgentScriptTimingsByBuildIDRow, error) {
@@ -11480,6 +11496,8 @@ func (q *sqlQuerier) GetWorkspaceAgentScriptTimingsByBuildID(ctx context.Context
 			&i.Stage,
 			&i.Status,
 			&i.DisplayName,
+			&i.WorkspaceAgentID,
+			&i.WorkspaceAgentName,
 		); err != nil {
 			return nil, err
 		}
@@ -15260,6 +15278,81 @@ func (q *sqlQuerier) GetWorkspaces(ctx context.Context, arg GetWorkspacesParams)
 			&i.LatestBuildTransition,
 			&i.LatestBuildStatus,
 			&i.Count,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspacesAndAgentsByOwnerID = `-- name: GetWorkspacesAndAgentsByOwnerID :many
+SELECT
+	workspaces.id as id,
+	workspaces.name as name,
+	job_status,
+	transition,
+	(array_agg(ROW(agent_id, agent_name)::agent_id_name_pair) FILTER (WHERE agent_id IS NOT NULL))::agent_id_name_pair[] as agents
+FROM workspaces
+LEFT JOIN LATERAL (
+	SELECT
+		workspace_id,
+		job_id,
+		transition,
+		job_status
+	FROM workspace_builds
+	JOIN provisioner_jobs ON provisioner_jobs.id = workspace_builds.job_id
+	WHERE workspace_builds.workspace_id = workspaces.id
+	ORDER BY build_number DESC
+	LIMIT 1
+) latest_build ON true
+LEFT JOIN LATERAL (
+	SELECT
+		workspace_agents.id as agent_id,
+		workspace_agents.name as agent_name,
+		job_id
+	FROM workspace_resources
+	JOIN workspace_agents ON workspace_agents.resource_id = workspace_resources.id
+	WHERE job_id = latest_build.job_id
+) resources ON true
+WHERE
+	-- Filter by owner_id
+	workspaces.owner_id = $1 :: uuid
+	AND workspaces.deleted = false
+	-- Authorize Filter clause will be injected below in GetAuthorizedWorkspacesAndAgentsByOwnerID
+	-- @authorize_filter
+GROUP BY workspaces.id, workspaces.name, latest_build.job_status, latest_build.job_id, latest_build.transition
+`
+
+type GetWorkspacesAndAgentsByOwnerIDRow struct {
+	ID         uuid.UUID            `db:"id" json:"id"`
+	Name       string               `db:"name" json:"name"`
+	JobStatus  ProvisionerJobStatus `db:"job_status" json:"job_status"`
+	Transition WorkspaceTransition  `db:"transition" json:"transition"`
+	Agents     []AgentIDNamePair    `db:"agents" json:"agents"`
+}
+
+func (q *sqlQuerier) GetWorkspacesAndAgentsByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]GetWorkspacesAndAgentsByOwnerIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspacesAndAgentsByOwnerID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspacesAndAgentsByOwnerIDRow
+	for rows.Next() {
+		var i GetWorkspacesAndAgentsByOwnerIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.JobStatus,
+			&i.Transition,
+			pq.Array(&i.Agents),
 		); err != nil {
 			return nil, err
 		}

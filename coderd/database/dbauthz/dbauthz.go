@@ -627,6 +627,10 @@ func (q *querier) Ping(ctx context.Context) (time.Duration, error) {
 	return q.db.Ping(ctx)
 }
 
+func (q *querier) PGLocks(ctx context.Context) (database.PGLocks, error) {
+	return q.db.PGLocks(ctx)
+}
+
 // InTx runs the given function in a transaction.
 func (q *querier) InTx(function func(querier database.Store) error, txOpts *database.TxOptions) error {
 	return q.db.InTx(func(tx database.Store) error {
@@ -2789,6 +2793,14 @@ func (q *querier) GetWorkspaces(ctx context.Context, arg database.GetWorkspacesP
 	return q.db.GetAuthorizedWorkspaces(ctx, arg, prep)
 }
 
+func (q *querier) GetWorkspacesAndAgentsByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]database.GetWorkspacesAndAgentsByOwnerIDRow, error) {
+	prep, err := prepareSQLFilter(ctx, q.auth, policy.ActionRead, rbac.ResourceWorkspace.Type)
+	if err != nil {
+		return nil, xerrors.Errorf("(dev error) prepare sql filter: %w", err)
+	}
+	return q.db.GetAuthorizedWorkspacesAndAgentsByOwnerID(ctx, ownerID, prep)
+}
+
 func (q *querier) GetWorkspacesEligibleForTransition(ctx context.Context, now time.Time) ([]database.WorkspaceTable, error) {
 	return q.db.GetWorkspacesEligibleForTransition(ctx, now)
 }
@@ -4240,6 +4252,10 @@ func (q *querier) GetTemplateUserRoles(ctx context.Context, id uuid.UUID) ([]dat
 func (q *querier) GetAuthorizedWorkspaces(ctx context.Context, arg database.GetWorkspacesParams, _ rbac.PreparedAuthorized) ([]database.GetWorkspacesRow, error) {
 	// TODO Delete this function, all GetWorkspaces should be authorized. For now just call GetWorkspaces on the authz querier.
 	return q.GetWorkspaces(ctx, arg)
+}
+
+func (q *querier) GetAuthorizedWorkspacesAndAgentsByOwnerID(ctx context.Context, ownerID uuid.UUID, _ rbac.PreparedAuthorized) ([]database.GetWorkspacesAndAgentsByOwnerIDRow, error) {
+	return q.GetWorkspacesAndAgentsByOwnerID(ctx, ownerID)
 }
 
 // GetAuthorizedUsers is not required for dbauthz since GetUsers is already
