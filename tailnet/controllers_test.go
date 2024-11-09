@@ -4,12 +4,15 @@ import (
 	"context"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/yamux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/xerrors"
@@ -40,11 +43,13 @@ func TestInMemoryCoordination(t *testing.T) {
 
 	reqs := make(chan *proto.CoordinateRequest, 100)
 	resps := make(chan *proto.CoordinateResponse, 100)
-	mCoord.EXPECT().Coordinate(gomock.Any(), clientID, gomock.Any(), tailnet.ClientCoordinateeAuth{agentID}).
+	auth := tailnet.ClientCoordinateeAuth{AgentID: agentID}
+	mCoord.EXPECT().Coordinate(gomock.Any(), clientID, gomock.Any(), auth).
 		Times(1).Return(reqs, resps)
 
-	ctrl := tailnet.NewSingleDestController(logger, fConn, agentID)
-	uut := ctrl.New(tailnet.NewInMemoryCoordinatorClient(logger, clientID, agentID, mCoord))
+	ctrl := tailnet.NewTunnelSrcCoordController(logger, fConn)
+	ctrl.AddDestination(agentID)
+	uut := ctrl.New(tailnet.NewInMemoryCoordinatorClient(logger, clientID, auth, mCoord))
 	defer uut.Close(ctx)
 
 	coordinationTest(ctx, t, uut, fConn, reqs, resps, agentID)
@@ -54,7 +59,7 @@ func TestInMemoryCoordination(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 }
 
-func TestSingleDestController(t *testing.T) {
+func TestTunnelSrcCoordController_Mainline(t *testing.T) {
 	t.Parallel()
 	ctx := testutil.Context(t, testutil.WaitShort)
 	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
@@ -99,7 +104,8 @@ func TestSingleDestController(t *testing.T) {
 	protocol, err := client.Coordinate(ctx)
 	require.NoError(t, err)
 
-	ctrl := tailnet.NewSingleDestController(logger.Named("coordination"), fConn, agentID)
+	ctrl := tailnet.NewTunnelSrcCoordController(logger.Named("coordination"), fConn)
+	ctrl.AddDestination(agentID)
 	uut := ctrl.New(protocol)
 	defer uut.Close(ctx)
 
@@ -108,6 +114,284 @@ func TestSingleDestController(t *testing.T) {
 	// Recv loop should be terminated by the server hanging up after Disconnect
 	err = testutil.RequireRecvCtx(ctx, t, uut.Wait())
 	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestTunnelSrcCoordController_AddDestination(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+
+	fConn := &fakeCoordinatee{}
+	uut := tailnet.NewTunnelSrcCoordController(logger, fConn)
+
+	// GIVEN: client already connected
+	client1 := newFakeCoordinatorClient(ctx, t)
+	cw1 := uut.New(client1)
+
+	// WHEN: we add 2 destinations
+	dest1 := uuid.UUID{1}
+	dest2 := uuid.UUID{2}
+	addDone := make(chan struct{})
+	go func() {
+		defer close(addDone)
+		uut.AddDestination(dest1)
+		uut.AddDestination(dest2)
+	}()
+
+	// THEN: Controller sends AddTunnel for the destinations
+	for i := range 2 {
+		b0 := byte(i + 1)
+		call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+		require.Equal(t, b0, call.req.GetAddTunnel().GetId()[0])
+		testutil.RequireSendCtx(ctx, t, call.err, nil)
+	}
+	_ = testutil.RequireRecvCtx(ctx, t, addDone)
+
+	// THEN: Controller sets destinations on Coordinatee
+	require.Contains(t, fConn.tunnelDestinations, dest1)
+	require.Contains(t, fConn.tunnelDestinations, dest2)
+
+	// WHEN: Closed from server side and reconnects
+	respCall := testutil.RequireRecvCtx(ctx, t, client1.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	closeCall := testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err := testutil.RequireRecvCtx(ctx, t, cw1.Wait())
+	require.ErrorIs(t, err, io.EOF)
+	client2 := newFakeCoordinatorClient(ctx, t)
+	cws := make(chan tailnet.CloserWaiter)
+	go func() {
+		cws <- uut.New(client2)
+	}()
+
+	// THEN: should immediately send both destinations
+	var dests []byte
+	for range 2 {
+		call := testutil.RequireRecvCtx(ctx, t, client2.reqs)
+		dests = append(dests, call.req.GetAddTunnel().GetId()[0])
+		testutil.RequireSendCtx(ctx, t, call.err, nil)
+	}
+	slices.Sort(dests)
+	require.Equal(t, dests, []byte{1, 2})
+
+	cw2 := testutil.RequireRecvCtx(ctx, t, cws)
+
+	// close client2
+	respCall = testutil.RequireRecvCtx(ctx, t, client2.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	closeCall = testutil.RequireRecvCtx(ctx, t, client2.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err = testutil.RequireRecvCtx(ctx, t, cw2.Wait())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestTunnelSrcCoordController_RemoveDestination(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+
+	fConn := &fakeCoordinatee{}
+	uut := tailnet.NewTunnelSrcCoordController(logger, fConn)
+
+	// GIVEN: 1 destination
+	dest1 := uuid.UUID{1}
+	uut.AddDestination(dest1)
+
+	// GIVEN: client already connected
+	client1 := newFakeCoordinatorClient(ctx, t)
+	cws := make(chan tailnet.CloserWaiter)
+	go func() {
+		cws <- uut.New(client1)
+	}()
+	call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	testutil.RequireSendCtx(ctx, t, call.err, nil)
+	cw1 := testutil.RequireRecvCtx(ctx, t, cws)
+
+	// WHEN: we remove one destination
+	removeDone := make(chan struct{})
+	go func() {
+		defer close(removeDone)
+		uut.RemoveDestination(dest1)
+	}()
+
+	// THEN: Controller sends RemoveTunnel for the destination
+	call = testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	require.Equal(t, dest1[:], call.req.GetRemoveTunnel().GetId())
+	testutil.RequireSendCtx(ctx, t, call.err, nil)
+	_ = testutil.RequireRecvCtx(ctx, t, removeDone)
+
+	// WHEN: Closed from server side and reconnect
+	respCall := testutil.RequireRecvCtx(ctx, t, client1.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	closeCall := testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err := testutil.RequireRecvCtx(ctx, t, cw1.Wait())
+	require.ErrorIs(t, err, io.EOF)
+
+	client2 := newFakeCoordinatorClient(ctx, t)
+	go func() {
+		cws <- uut.New(client2)
+	}()
+
+	// THEN: should immediately resolve without sending anything
+	cw2 := testutil.RequireRecvCtx(ctx, t, cws)
+
+	// close client2
+	respCall = testutil.RequireRecvCtx(ctx, t, client2.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	closeCall = testutil.RequireRecvCtx(ctx, t, client2.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err = testutil.RequireRecvCtx(ctx, t, cw2.Wait())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestTunnelSrcCoordController_RemoveDestination_Error(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+
+	fConn := &fakeCoordinatee{}
+	uut := tailnet.NewTunnelSrcCoordController(logger, fConn)
+
+	// GIVEN: 3 destination
+	dest1 := uuid.UUID{1}
+	dest2 := uuid.UUID{2}
+	dest3 := uuid.UUID{3}
+	uut.AddDestination(dest1)
+	uut.AddDestination(dest2)
+	uut.AddDestination(dest3)
+
+	// GIVEN: client already connected
+	client1 := newFakeCoordinatorClient(ctx, t)
+	cws := make(chan tailnet.CloserWaiter)
+	go func() {
+		cws <- uut.New(client1)
+	}()
+	for range 3 {
+		call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+		testutil.RequireSendCtx(ctx, t, call.err, nil)
+	}
+	cw1 := testutil.RequireRecvCtx(ctx, t, cws)
+
+	// WHEN: we remove all destinations
+	removeDone := make(chan struct{})
+	go func() {
+		defer close(removeDone)
+		uut.RemoveDestination(dest1)
+		uut.RemoveDestination(dest2)
+		uut.RemoveDestination(dest3)
+	}()
+
+	// WHEN: first RemoveTunnel call fails
+	theErr := xerrors.New("a bad thing happened")
+	call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	require.Equal(t, dest1[:], call.req.GetRemoveTunnel().GetId())
+	testutil.RequireSendCtx(ctx, t, call.err, theErr)
+
+	// THEN: we disconnect and do not send remaining RemoveTunnel messages
+	closeCall := testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	_ = testutil.RequireRecvCtx(ctx, t, removeDone)
+
+	// shut down
+	respCall := testutil.RequireRecvCtx(ctx, t, client1.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	// triggers second close call
+	closeCall = testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err := testutil.RequireRecvCtx(ctx, t, cw1.Wait())
+	require.ErrorIs(t, err, theErr)
+}
+
+func TestTunnelSrcCoordController_Sync(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+
+	fConn := &fakeCoordinatee{}
+	uut := tailnet.NewTunnelSrcCoordController(logger, fConn)
+	dest1 := uuid.UUID{1}
+	dest2 := uuid.UUID{2}
+	dest3 := uuid.UUID{3}
+
+	// GIVEN: dest1 & dest2 already added
+	uut.AddDestination(dest1)
+	uut.AddDestination(dest2)
+
+	// GIVEN: client already connected
+	client1 := newFakeCoordinatorClient(ctx, t)
+	cws := make(chan tailnet.CloserWaiter)
+	go func() {
+		cws <- uut.New(client1)
+	}()
+	for range 2 {
+		call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+		testutil.RequireSendCtx(ctx, t, call.err, nil)
+	}
+	cw1 := testutil.RequireRecvCtx(ctx, t, cws)
+
+	// WHEN: we sync dest2 & dest3
+	syncDone := make(chan struct{})
+	go func() {
+		defer close(syncDone)
+		uut.SyncDestinations([]uuid.UUID{dest2, dest3})
+	}()
+
+	// THEN: we get an add for dest3 and remove for dest1
+	call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	require.Equal(t, dest3[:], call.req.GetAddTunnel().GetId())
+	testutil.RequireSendCtx(ctx, t, call.err, nil)
+	call = testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	require.Equal(t, dest1[:], call.req.GetRemoveTunnel().GetId())
+	testutil.RequireSendCtx(ctx, t, call.err, nil)
+
+	// shut down
+	respCall := testutil.RequireRecvCtx(ctx, t, client1.resps)
+	testutil.RequireSendCtx(ctx, t, respCall.err, io.EOF)
+	closeCall := testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+	err := testutil.RequireRecvCtx(ctx, t, cw1.Wait())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestTunnelSrcCoordController_AddDestination_Error(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+
+	fConn := &fakeCoordinatee{}
+	uut := tailnet.NewTunnelSrcCoordController(logger, fConn)
+
+	// GIVEN: client already connected
+	client1 := newFakeCoordinatorClient(ctx, t)
+	cw1 := uut.New(client1)
+
+	// WHEN: we add a destination, and the AddTunnel fails
+	dest1 := uuid.UUID{1}
+	addDone := make(chan struct{})
+	go func() {
+		defer close(addDone)
+		uut.AddDestination(dest1)
+	}()
+	theErr := xerrors.New("a bad thing happened")
+	call := testutil.RequireRecvCtx(ctx, t, client1.reqs)
+	testutil.RequireSendCtx(ctx, t, call.err, theErr)
+
+	// THEN: Client is closed and exits
+	closeCall := testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+
+	// close the resps, since the client has closed
+	resp := testutil.RequireRecvCtx(ctx, t, client1.resps)
+	testutil.RequireSendCtx(ctx, t, resp.err, net.ErrClosed)
+	// this triggers a second Close() call on the client
+	closeCall = testutil.RequireRecvCtx(ctx, t, client1.close)
+	testutil.RequireSendCtx(ctx, t, closeCall, nil)
+
+	err := testutil.RequireRecvCtx(ctx, t, cw1.Wait())
+	require.ErrorIs(t, err, theErr)
+
+	_ = testutil.RequireRecvCtx(ctx, t, addDone)
 }
 
 func TestAgentCoordinationController_SendsReadyForHandshake(t *testing.T) {
@@ -677,4 +961,304 @@ func (f *fakeResumeTokenClient) RefreshResumeToken(_ context.Context, _ *proto.R
 type fakeResumeTokenCall struct {
 	resp  chan *proto.RefreshResumeTokenResponse
 	errCh chan error
+}
+
+func TestController_Disconnects(t *testing.T) {
+	t.Parallel()
+	testCtx := testutil.Context(t, testutil.WaitShort)
+	ctx, cancel := context.WithCancel(testCtx)
+	logger := slogtest.Make(t, &slogtest.Options{
+		IgnoredErrorIs: append(slogtest.DefaultIgnoredErrorIs,
+			io.EOF,                   // we get EOF when we simulate a DERPMap error
+			yamux.ErrSessionShutdown, // coordination can throw these when DERP error tears down session
+		),
+	}).Leveled(slog.LevelDebug)
+	agentID := uuid.UUID{0x55}
+	clientID := uuid.UUID{0x66}
+	fCoord := tailnettest.NewFakeCoordinator()
+	var coord tailnet.Coordinator = fCoord
+	coordPtr := atomic.Pointer[tailnet.Coordinator]{}
+	coordPtr.Store(&coord)
+	derpMapCh := make(chan *tailcfg.DERPMap)
+	defer close(derpMapCh)
+	svc, err := tailnet.NewClientService(tailnet.ClientServiceOptions{
+		Logger:                  logger.Named("svc"),
+		CoordPtr:                &coordPtr,
+		DERPMapUpdateFrequency:  time.Millisecond,
+		DERPMapFn:               func() *tailcfg.DERPMap { return <-derpMapCh },
+		NetworkTelemetryHandler: func([]*proto.TelemetryEvent) {},
+		ResumeTokenProvider:     tailnet.NewInsecureTestResumeTokenProvider(),
+	})
+	require.NoError(t, err)
+
+	dialer := &pipeDialer{
+		ctx:    testCtx,
+		logger: logger,
+		t:      t,
+		svc:    svc,
+		streamID: tailnet.StreamID{
+			Name: "client",
+			ID:   clientID,
+			Auth: tailnet.ClientCoordinateeAuth{AgentID: agentID},
+		},
+	}
+
+	peersLost := make(chan struct{})
+	fConn := &fakeTailnetConn{peersLostCh: peersLost}
+
+	uut := tailnet.NewController(logger.Named("ctrl"), dialer,
+		// darwin can be slow sometimes.
+		tailnet.WithGracefulTimeout(5*time.Second))
+	uut.CoordCtrl = tailnet.NewAgentCoordinationController(logger.Named("coord_ctrl"), fConn)
+	uut.DERPCtrl = tailnet.NewBasicDERPController(logger.Named("derp_ctrl"), fConn)
+	uut.Run(ctx)
+
+	call := testutil.RequireRecvCtx(testCtx, t, fCoord.CoordinateCalls)
+
+	// simulate a problem with DERPMaps by sending nil
+	testutil.RequireSendCtx(testCtx, t, derpMapCh, nil)
+
+	// this should cause the coordinate call to hang up WITHOUT disconnecting
+	reqNil := testutil.RequireRecvCtx(testCtx, t, call.Reqs)
+	require.Nil(t, reqNil)
+
+	// and mark all peers lost
+	_ = testutil.RequireRecvCtx(testCtx, t, peersLost)
+
+	// ...and then reconnect
+	call = testutil.RequireRecvCtx(testCtx, t, fCoord.CoordinateCalls)
+
+	// close the coordination call, which should cause a 2nd reconnection
+	close(call.Resps)
+	_ = testutil.RequireRecvCtx(testCtx, t, peersLost)
+	call = testutil.RequireRecvCtx(testCtx, t, fCoord.CoordinateCalls)
+
+	// canceling the context should trigger the disconnect message
+	cancel()
+	reqDisc := testutil.RequireRecvCtx(testCtx, t, call.Reqs)
+	require.NotNil(t, reqDisc)
+	require.NotNil(t, reqDisc.Disconnect)
+	close(call.Resps)
+
+	_ = testutil.RequireRecvCtx(testCtx, t, peersLost)
+}
+
+func TestController_TelemetrySuccess(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+	agentID := uuid.UUID{0x55}
+	clientID := uuid.UUID{0x66}
+	fCoord := tailnettest.NewFakeCoordinator()
+	var coord tailnet.Coordinator = fCoord
+	coordPtr := atomic.Pointer[tailnet.Coordinator]{}
+	coordPtr.Store(&coord)
+	derpMapCh := make(chan *tailcfg.DERPMap)
+	defer close(derpMapCh)
+	eventCh := make(chan []*proto.TelemetryEvent, 1)
+	svc, err := tailnet.NewClientService(tailnet.ClientServiceOptions{
+		Logger:                 logger,
+		CoordPtr:               &coordPtr,
+		DERPMapUpdateFrequency: time.Millisecond,
+		DERPMapFn:              func() *tailcfg.DERPMap { return <-derpMapCh },
+		NetworkTelemetryHandler: func(batch []*proto.TelemetryEvent) {
+			select {
+			case <-ctx.Done():
+				t.Error("timeout sending telemetry event")
+			case eventCh <- batch:
+				t.Log("sent telemetry batch")
+			}
+		},
+		ResumeTokenProvider: tailnet.NewInsecureTestResumeTokenProvider(),
+	})
+	require.NoError(t, err)
+
+	dialer := &pipeDialer{
+		ctx:    ctx,
+		logger: logger,
+		t:      t,
+		svc:    svc,
+		streamID: tailnet.StreamID{
+			Name: "client",
+			ID:   clientID,
+			Auth: tailnet.ClientCoordinateeAuth{AgentID: agentID},
+		},
+	}
+
+	uut := tailnet.NewController(logger, dialer)
+	uut.CoordCtrl = tailnet.NewAgentCoordinationController(logger, &fakeTailnetConn{})
+	tel := tailnet.NewBasicTelemetryController(logger)
+	uut.TelemetryCtrl = tel
+	uut.Run(ctx)
+	// Coordinate calls happen _after_ telemetry is connected up, so we use this
+	// to ensure telemetry is connected before sending our event
+	cc := testutil.RequireRecvCtx(ctx, t, fCoord.CoordinateCalls)
+	defer close(cc.Resps)
+
+	tel.SendTelemetryEvent(&proto.TelemetryEvent{
+		Id: []byte("test event"),
+	})
+
+	testEvents := testutil.RequireRecvCtx(ctx, t, eventCh)
+
+	require.Len(t, testEvents, 1)
+	require.Equal(t, []byte("test event"), testEvents[0].Id)
+}
+
+type fakeTailnetConn struct {
+	peersLostCh chan struct{}
+}
+
+func (*fakeTailnetConn) UpdatePeers([]*proto.CoordinateResponse_PeerUpdate) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (f *fakeTailnetConn) SetAllPeersLost() {
+	if f.peersLostCh == nil {
+		return
+	}
+	f.peersLostCh <- struct{}{}
+}
+
+func (*fakeTailnetConn) SetNodeCallback(func(*tailnet.Node)) {}
+
+func (*fakeTailnetConn) SetDERPMap(*tailcfg.DERPMap) {}
+
+func (*fakeTailnetConn) SetTunnelDestination(uuid.UUID) {}
+
+type pipeDialer struct {
+	ctx      context.Context
+	logger   slog.Logger
+	t        testing.TB
+	svc      *tailnet.ClientService
+	streamID tailnet.StreamID
+}
+
+func (p *pipeDialer) Dial(_ context.Context, _ tailnet.ResumeTokenController) (tailnet.ControlProtocolClients, error) {
+	s, c := net.Pipe()
+	go func() {
+		err := p.svc.ServeConnV2(p.ctx, s, p.streamID)
+		p.logger.Debug(p.ctx, "piped tailnet service complete", slog.Error(err))
+	}()
+	client, err := tailnet.NewDRPCClient(c, p.logger)
+	if !assert.NoError(p.t, err) {
+		_ = c.Close()
+		return tailnet.ControlProtocolClients{}, err
+	}
+	coord, err := client.Coordinate(context.Background())
+	if !assert.NoError(p.t, err) {
+		_ = c.Close()
+		return tailnet.ControlProtocolClients{}, err
+	}
+
+	derps := &tailnet.DERPFromDRPCWrapper{}
+	derps.Client, err = client.StreamDERPMaps(context.Background(), &proto.StreamDERPMapsRequest{})
+	if !assert.NoError(p.t, err) {
+		_ = c.Close()
+		return tailnet.ControlProtocolClients{}, err
+	}
+	return tailnet.ControlProtocolClients{
+		Closer:      client.DRPCConn(),
+		Coordinator: coord,
+		DERP:        derps,
+		ResumeToken: client,
+		Telemetry:   client,
+	}, nil
+}
+
+type fakeCoordinatorClient struct {
+	ctx   context.Context
+	t     testing.TB
+	reqs  chan *coordReqCall
+	resps chan *coordRespCall
+	close chan chan<- error
+}
+
+func (f fakeCoordinatorClient) Close() error {
+	f.t.Helper()
+	errs := make(chan error)
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting to send close call")
+		return f.ctx.Err()
+	case f.close <- errs:
+		// OK
+	}
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting for close call response")
+		return f.ctx.Err()
+	case err := <-errs:
+		return err
+	}
+}
+
+func (f fakeCoordinatorClient) Send(request *proto.CoordinateRequest) error {
+	f.t.Helper()
+	errs := make(chan error)
+	call := &coordReqCall{
+		req: request,
+		err: errs,
+	}
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting to send call")
+		return f.ctx.Err()
+	case f.reqs <- call:
+		// OK
+	}
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting for send call response")
+		return f.ctx.Err()
+	case err := <-errs:
+		return err
+	}
+}
+
+func (f fakeCoordinatorClient) Recv() (*proto.CoordinateResponse, error) {
+	f.t.Helper()
+	resps := make(chan *proto.CoordinateResponse)
+	errs := make(chan error)
+	call := &coordRespCall{
+		resp: resps,
+		err:  errs,
+	}
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting to send Recv() call")
+		return nil, f.ctx.Err()
+	case f.resps <- call:
+		// OK
+	}
+	select {
+	case <-f.ctx.Done():
+		f.t.Error("timed out waiting for Recv() call response")
+		return nil, f.ctx.Err()
+	case err := <-errs:
+		return nil, err
+	case resp := <-resps:
+		return resp, nil
+	}
+}
+
+func newFakeCoordinatorClient(ctx context.Context, t testing.TB) *fakeCoordinatorClient {
+	return &fakeCoordinatorClient{
+		ctx:   ctx,
+		t:     t,
+		reqs:  make(chan *coordReqCall),
+		resps: make(chan *coordRespCall),
+		close: make(chan chan<- error),
+	}
+}
+
+type coordReqCall struct {
+	req *proto.CoordinateRequest
+	err chan<- error
+}
+
+type coordRespCall struct {
+	resp chan<- *proto.CoordinateResponse
+	err  chan<- error
 }
