@@ -185,8 +185,8 @@ require (
 	golang.org/x/text v0.20.0
 	golang.org/x/tools v0.27.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
-	google.golang.org/api v0.204.0
-	google.golang.org/grpc v1.67.1
+	google.golang.org/api v0.205.0
+	google.golang.org/grpc v1.68.0
 	google.golang.org/protobuf v1.35.1
 	gopkg.in/DataDog/dd-trace-go.v1 v1.69.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -202,7 +202,7 @@ require go.uber.org/mock v0.5.0
 require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/charmbracelet/bubbles v0.20.0
-	github.com/charmbracelet/bubbletea v1.1.0
+	github.com/charmbracelet/bubbletea v1.2.1
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/coder/serpent v0.8.0
 	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21
@@ -215,14 +215,14 @@ require (
 )
 
 require (
-	cloud.google.com/go/auth v0.10.0 // indirect
+	cloud.google.com/go/auth v0.10.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.5 // indirect
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/DataDog/go-libddwaf/v3 v3.4.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.12.0 // indirect
-	github.com/charmbracelet/x/ansi v0.4.2 // indirect
+	github.com/charmbracelet/x/ansi v0.4.5 // indirect
 	github.com/charmbracelet/x/term v0.2.0 // indirect
 	github.com/eapache/queue/v2 v2.0.0-20230407133247-75960ed334e4 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
